@@ -206,11 +206,10 @@ class ElasticsearchEngine extends Engine
     public function map(Builder $builder, $results, $model)
     {
         if ($this->getTotalCount($results) === 0) {
-            return Collection::make();
+            return $model->newCollection();
         }
 
-        $keys = collect($results['hits']['hits'])
-                        ->pluck('_id')->values()->all();
+        $keys = collect($results['hits']['hits'])->pluck('_id')->values()->all();
 
         $models = $model->getScoutModelsByIds(
             $builder, $keys
@@ -218,9 +217,11 @@ class ElasticsearchEngine extends Engine
             return $model->getScoutKey();
         });
 
-        return collect($results['hits']['hits'])->map(function ($hit) use ($model, $models) {
-            return isset($models[$hit['_id']]) ? $models[$hit['_id']] : null;
-        })->filter()->values();
+        return $model->getScoutModelsByIds(
+            $builder, $keys
+        )->filter(function ($model) use ($keys) {
+            return in_array($model->getScoutKey(), $keys);
+        });
     }
 
     /**
@@ -238,6 +239,19 @@ class ElasticsearchEngine extends Engine
         }
 
         return $total;
+    }
+
+    /**
+     * Flush all of the model's records from the engine.
+     *
+     * @param  \Illuminate\Database\Eloquent\Model  $model
+     * @return void
+     */
+    public function flush($model)
+    {
+        $model->newQuery()
+            ->orderBy($model->getKeyName())
+            ->unsearchable();
     }
 
     /**
