@@ -7,7 +7,6 @@ use Laravel\Scout\Builder;
 use Laravel\Scout\Engines\Engine;
 use Elasticsearch\Client as Elastic;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Support\Collection as BaseCollection;
 
 class ElasticsearchEngine extends Engine
 {
@@ -205,23 +204,20 @@ class ElasticsearchEngine extends Engine
      */
     public function map(Builder $builder, $results, $model)
     {
-        if ($this->getTotalCount($results) === 0) {
+        if ($results['hits']['total'] === 0) {
             return $model->newCollection();
         }
-
         $keys = collect($results['hits']['hits'])->pluck('_id')->values()->all();
 
-        $models = $model->getScoutModelsByIds(
-            $builder, $keys
-        )->keyBy(function ($model) {
-            return $model->getScoutKey();
-        });
+        $modelIdPositions = array_flip($keys);
 
         return $model->getScoutModelsByIds(
             $builder, $keys
         )->filter(function ($model) use ($keys) {
             return in_array($model->getScoutKey(), $keys);
-        });
+        })->sortBy(function ($model) use ($modelIdPositions) {
+            return $modelIdPositions[$model->getScoutKey()];
+        })->values();
     }
 
     /**
