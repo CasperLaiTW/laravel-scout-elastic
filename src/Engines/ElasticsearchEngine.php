@@ -1,6 +1,6 @@
 <?php
 
-namespace ScoutEngines\Elasticsearch;
+namespace Tamayo\LaravelScoutElastic\Engines;
 
 use Illuminate\Support\Arr;
 use Laravel\Scout\Builder;
@@ -11,9 +11,9 @@ use Illuminate\Database\Eloquent\Collection;
 class ElasticsearchEngine extends Engine
 {
     /**
-     * Elastic where the instance of Elastic|\Elasticsearch\Client is stored.
+     * Elastic client.
      *
-     * @var object
+     * @var Elastic
      */
     protected $elastic;
 
@@ -36,15 +36,18 @@ class ElasticsearchEngine extends Engine
      */
     public function update($models)
     {
+        if ($models->isEmpty()) {
+            return;
+        }
+
         $params['body'] = [];
 
-        $models->each(function($model) use (&$params)
-        {
+        $models->each(function ($model) use (&$params) {
             $params['body'][] = [
                 'update' => [
-                    '_id' => $model->getKey(),
+                    '_id' => $model->getScoutKey(),
                     '_index' => $model->searchableAs(),
-                    '_type' => $model->searchableAs(),
+                    '_type' => get_class($model),
                 ]
             ];
             $params['body'][] = [
@@ -66,13 +69,12 @@ class ElasticsearchEngine extends Engine
     {
         $params['body'] = [];
 
-        $models->each(function($model) use (&$params)
-        {
+        $models->each(function ($model) use (&$params) {
             $params['body'][] = [
                 'delete' => [
                     '_id' => $model->getKey(),
                     '_index' => $model->searchableAs(),
-                    '_type' => $model->searchableAs(),
+                    '_type' => get_class($model),
                 ]
             ];
         });
@@ -110,8 +112,7 @@ class ElasticsearchEngine extends Engine
             'size' => $perPage,
         ]);
 
-
-        $result['nbPages'] = $this->getTotalCount($result)/$perPage;
+        $result['nbPages'] = $result['hits']['total'] / $perPage;
 
         return $result;
     }
@@ -126,12 +127,12 @@ class ElasticsearchEngine extends Engine
     protected function performSearch(Builder $builder, array $options = [])
     {
         $params = [
-            'index' => $builder->index ?: $builder->model->searchableAs(),
-            'type' => $builder->index ?: $builder->model->searchableAs(),
+            'index' => $builder->model->searchableAs(),
+            'type' => get_class($builder->model),
             'body' => [
                 'query' => [
                     'bool' => [
-                        'must' => [['query_string' => [ 'query' => "*{$builder->query}*"]]]
+                        'must' => [['query_string' => ['query' => "*{$builder->query}*"]]]
                     ]
                 ]
             ]
@@ -150,8 +151,10 @@ class ElasticsearchEngine extends Engine
         }
 
         if (isset($options['numericFilters']) && count($options['numericFilters'])) {
-            $params['body']['query']['bool']['must'] = array_merge($params['body']['query']['bool']['must'],
-                $options['numericFilters']);
+            $params['body']['query']['bool']['must'] = array_merge(
+                $params['body']['query']['bool']['must'],
+                $options['numericFilters']
+            );
         }
 
         if ($builder->callback) {
@@ -212,12 +215,11 @@ class ElasticsearchEngine extends Engine
         $modelIdPositions = array_flip($keys);
 
         return $model->getScoutModelsByIds(
-            $builder, $keys
+            $builder,
+            $keys
         )->filter(function ($model) use ($keys) {
             return in_array($model->getScoutKey(), $keys);
-        })->sortBy(function ($model) use ($modelIdPositions) {
-            return $modelIdPositions[$model->getScoutKey()];
-        })->values();
+        });
     }
 
     /**
@@ -262,7 +264,7 @@ class ElasticsearchEngine extends Engine
             return null;
         }
 
-        return collect($builder->orders)->map(function($order) {
+        return collect($builder->orders)->map(function ($order) {
             return [$order['column'] => $order['direction']];
         })->toArray();
     }
